@@ -1,3 +1,6 @@
+// (c) 2026 wyou25f. Licensed under YESL-2026.
+// Full license text: https://github.com/wyou25f/yolauncher/blob/main/LICENSE
+
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
