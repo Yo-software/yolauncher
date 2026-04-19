@@ -114,14 +114,46 @@ ipcMain.handle('launch-game', async (_, { version, username, ram, javaPath, modL
       // isn't installed the error will surface naturally from launcher-core.
     }
 
+    // ... внутри ipcMain.handle('launch-game')
+
+    // Формируем "фейковую" авторизацию для оффлайн-режима
+    const offlineAuth = {
+      access_token: 'dummy_token', // Майн проверяет наличие этой строки
+      client_token: 'dummy_token',
+      uuid: '00000000-0000-0000-0000-000000000000', // Формат UUID важен для разблокировки UI
+      name: username || 'Player',
+      user_properties: '{}'
+    };
+
     const opts = {
-      authorization: Authenticator.getAuth(username || 'Player'),
-      root:          gameDir,
-      version:       { number: launchVersion, type: 'release' },
-      memory:        {
+      // Это база для оффлайна
+      authorization: {
+        access_token: 'dummy',
+        client_token: 'dummy',
+        uuid: '00000000-0000-0000-0000-000000000000',
+        name: username || 'Player',
+        user_properties: '{}'
+      },
+      root:    gameDir,
+      version: { 
+        number: launchVersion, 
+        type: 'release' 
+      },
+      memory: {
         max: `${ramMB}M`,
         min: `${Math.max(256, Math.floor(ramMB / 4))}M`,
       },
+      // ПРИНУДИТЕЛЬНО ПЕРЕДАЕМ ПАРАМЕТРЫ, ЧТОБЫ УБРАТЬ DEMO
+      overrides: {
+        detached: false,
+        // Эти аргументы отключают Demo-режим и проверки Microsoft
+        extraArgs: [
+          "--username", username || 'Player',
+          "--uuid", "00000000-0000-0000-0000-000000000000",
+          "--accessToken", "dummy",
+          "--userType", "legacy" // Для старых версий (как 1.16.5) это критично!
+        ]
+      }
     };
 
     if (javaPath && javaPath.trim()) opts.javaPath = javaPath.trim();
