@@ -1,19 +1,24 @@
+// (c) 2026 wyou25f. Licensed under YESL-2026.
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('launcher', {
-  // Window controls
-  minimize: () => ipcRenderer.send('window-minimize'),
-  close:    () => ipcRenderer.send('window-close'),
+  // Window
+  minimize:  ()      => ipcRenderer.send('window-minimize'),
+  close:     ()      => ipcRenderer.send('window-close'),
+  openUrl:   (url)   => ipcRenderer.send('open-url', url),
 
-  // Minecraft API
-  fetchVersions: () => ipcRenderer.invoke('fetch-versions'),
-  launchGame: (opts) => ipcRenderer.invoke('launch-game', opts),
+  // App meta
+  getVersion:  ()    => ipcRenderer.invoke('get-version'),
+  getGameDir:  ()    => ipcRenderer.invoke('get-game-dir'),
+  checkUpdate: ()    => ipcRenderer.invoke('check-update'),
 
-  // Events FROM main → renderer
-  onLaunchLog:      (cb) => ipcRenderer.on('launch-log',      (_e, d) => cb(d)),
-  onLaunchProgress: (cb) => ipcRenderer.on('launch-progress', (_e, d) => cb(d)),
-  onLaunchClosed:   (cb) => ipcRenderer.on('launch-closed',   (_e, d) => cb(d)),
+  // Minecraft
+  fetchVersions: ()      => ipcRenderer.invoke('fetch-versions'),
+  launchGame:    (opts)  => ipcRenderer.invoke('launch-game', opts),
 
-  // Remove listeners (cleanup)
-  removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel),
+  // Launch events
+  onLaunchProgress: (cb) => ipcRenderer.on('launch-progress', (_, d) => cb(d)),
+  onLaunchLog:      (cb) => ipcRenderer.on('launch-log',      (_, d) => cb(d)),
+  onLaunchClosed:   (cb) => ipcRenderer.on('launch-closed',   (_, d) => cb(d)),
+  removeAllListeners: (ch) => ipcRenderer.removeAllListeners(ch),
 });

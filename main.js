@@ -1,35 +1,30 @@
 // (c) 2026 wyou25f. Licensed under YESL-2026.
-// Full license text: https://github.com/wyou25f/yolauncher/blob/main/LICENSE
-
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
-const path = require('path');
-const fs = require('fs');
+const path  = require('path');
+const fs    = require('fs');
 const https = require('https');
+const os    = require('os');
 
+const APP_VERSION = '1.1.0';
 let mainWindow;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 900,
-    height: 560,
-    minWidth: 900,
-    minHeight: 560,
+    width:     1150,
+    height:    700,
+    minWidth:  1150,
+    minHeight: 700,
     resizable: false,
-    frame: false,
-    titleBarStyle: 'hidden',
-    backgroundColor: '#1e1e1e',
+    frame:     false,
+    backgroundColor: '#0d0d0d',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload:          path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false,
+      nodeIntegration:  false,
     },
-    icon: path.join(__dirname, 'assets', 'icon.png'),
   });
-
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-
-  // Uncomment for dev tools
-  mainWindow.webContents.openDevTools();
+  // mainWindow.webContents.openDevTools();
 }
 
 app.whenReady().then(() => {
@@ -38,88 +33,104 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
-
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-// ─── IPC: Window controls ────────────────────────────────────────────────────
+// ─── Window controls ─────────────────────────────────────────
 ipcMain.on('window-minimize', () => mainWindow.minimize());
-ipcMain.on('window-close', () => app.quit());
+ipcMain.on('window-close',    () => app.quit());
+ipcMain.on('open-url', (_, url) => shell.openExternal(url));
 
-// ─── IPC: Fetch Minecraft versions ───────────────────────────────────────────
-ipcMain.handle('fetch-versions', async () => {
-  return new Promise((resolve, reject) => {
-    https.get('https://launchermeta.mojang.com/mc/game/version_manifest.json', (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try {
-          const manifest = JSON.parse(data);
-          const versions = manifest.versions.map(v => ({
-            id: v.id,
-            type: v.type,  // release | snapshot | old_beta | old_alpha
-          }));
-          resolve(versions);
-        } catch (e) {
-          reject(e.message);
-        }
-      });
-    }).on('error', (e) => reject(e.message));
-  });
+// ─── App meta ─────────────────────────────────────────────────
+ipcMain.handle('get-version', () => APP_VERSION);
+
+ipcMain.handle('get-game-dir', () => {
+  return path.join(app.getPath('appData'), '.yolauncher');
 });
 
-// ─── IPC: Launch Minecraft ────────────────────────────────────────────────────
-ipcMain.handle('launch-game', async (event, { version, username }) => {
+// ─── Check launcher updates (GitHub) ─────────────────────────
+ipcMain.handle('check-update', () => new Promise((resolve) => {
+  const req = https.get({
+    hostname: 'api.github.com',
+    path:     '/repos/wyou25f/yolauncher/releases/latest',
+    headers:  { 'User-Agent': `YoLauncher/${APP_VERSION}` },
+  }, (res) => {
+    let raw = '';
+    res.on('data', c => raw += c);
+    res.on('end', () => {
+      try {
+        const j      = JSON.parse(raw);
+        const latest = (j.tag_name || '').replace(/^v/, '');
+        resolve({
+          current:   APP_VERSION,
+          latest:    latest || APP_VERSION,
+          hasUpdate: !!latest && latest !== APP_VERSION,
+          url:       j.html_url || '',
+        });
+      } catch {
+        resolve({ current: APP_VERSION, latest: APP_VERSION, hasUpdate: false, url: '' });
+      }
+    });
+  });
+  req.on('error', () => resolve({ current: APP_VERSION, latest: APP_VERSION, hasUpdate: false, url: '' }));
+  req.setTimeout(6000, () => { req.destroy(); resolve({ current: APP_VERSION, latest: APP_VERSION, hasUpdate: false, url: '' }); });
+}));
+
+// ─── Fetch Minecraft version list ────────────────────────────
+ipcMain.handle('fetch-versions', () => new Promise((resolve, reject) => {
+  const req = https.get('https://launchermeta.mojang.com/mc/game/version_manifest.json', (res) => {
+    let raw = '';
+    res.on('data', c => raw += c);
+    res.on('end', () => {
+      try {
+        const { versions } = JSON.parse(raw);
+        resolve(versions.map(v => ({ id: v.id, type: v.type })));
+      } catch (e) {
+        reject(e.message);
+      }
+    });
+  });
+  req.on('error', e => reject(e.message));
+  req.setTimeout(12000, () => { req.destroy(); reject('Timeout'); });
+}));
+
+// ─── Launch Minecraft ─────────────────────────────────────────
+ipcMain.handle('launch-game', async (_, { version, username, ram, javaPath, modLoader }) => {
   try {
-    // Dynamic require so app doesn't crash if package not installed yet
     const { Client, Authenticator } = require('minecraft-launcher-core');
     const launcher = new Client();
 
     const gameDir = path.join(app.getPath('appData'), '.yolauncher');
     if (!fs.existsSync(gameDir)) fs.mkdirSync(gameDir, { recursive: true });
 
-  const opts = {
+    const ramMB = Math.max(512, parseInt(ram, 10) || 2048);
+
+    // Resolve actual version string (Forge/Fabric require pre-installation)
+    let launchVersion = version;
+    if (modLoader && modLoader !== 'none') {
+      // mod-loaded instances require the user to pre-install the loader.
+      // Launcher-core will use whatever version ID is passed; if loader
+      // isn't installed the error will surface naturally from launcher-core.
+    }
+
+    const opts = {
       authorization: Authenticator.getAuth(username || 'Player'),
-      root: gameDir,
-      version: {
-        number: version,
-        type: 'release',
+      root:          gameDir,
+      version:       { number: launchVersion, type: 'release' },
+      memory:        {
+        max: `${ramMB}M`,
+        min: `${Math.max(256, Math.floor(ramMB / 4))}M`,
       },
-      memory: {
-        max: '2G',
-        min: '512M',
-      },
-      javaPath: '/usr/bin/java', 
-      customArgs: [
-        "--add-modules", "jdk.naming.dns",
-        "--add-exports", "jdk.naming.dns/com.sun.jndi.dns=java.naming",
-        "--add-opens", "java.base/java.lang=ALL-UNNAMED",
-        "--add-opens", "java.base/java.util=ALL-UNNAMED",
-        "--add-opens", "java.base/java.io=ALL-UNNAMED",
-        "--add-opens", "java.base/java.lang.reflect=ALL-UNNAMED",
-        "--add-opens", "java.base/java.text=ALL-UNNAMED",
-        "--add-opens", "java.desktop/sun.awt=ALL-UNNAMED",
-        "-Djava.net.preferIPv4Stack=true",
-        "-DignoreList=bootstap,jline,jutils,jopt-simple" // Пробуем игнорировать проверку некоторых либ
-      ]
     };
 
-    launcher.on('debug', (e) => {
-      mainWindow.webContents.send('launch-log', { type: 'debug', msg: e });
-    });
+    if (javaPath && javaPath.trim()) opts.javaPath = javaPath.trim();
 
-    launcher.on('data', (e) => {
-      mainWindow.webContents.send('launch-log', { type: 'data', msg: e });
-    });
-
-    launcher.on('progress', (e) => {
-      mainWindow.webContents.send('launch-progress', e);
-    });
-
-    launcher.on('close', (code) => {
-      mainWindow.webContents.send('launch-closed', code);
-    });
+    // ── Progress relay ──────────────────────────────────────
+    launcher.on('progress', e => mainWindow.webContents.send('launch-progress', e));
+    launcher.on('debug',    e => mainWindow.webContents.send('launch-log', { type: 'debug', msg: String(e) }));
+    launcher.on('data',     e => mainWindow.webContents.send('launch-log', { type: 'data',  msg: String(e) }));
+    launcher.on('close',    c => mainWindow.webContents.send('launch-closed', c));
 
     await launcher.launch(opts);
     return { success: true };
