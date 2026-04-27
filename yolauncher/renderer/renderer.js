@@ -1,6 +1,6 @@
 /**
- * YoLauncher v1.1.0 · renderer.js
- * Instances, skins, settings, fixed progress, update check.
+ * YoLauncher v1.1.2 · renderer.js
+ * Instances, skins, settings, Java management, update check.
  */
 
 // ═══════════════════════════════════════════════════════════
@@ -22,7 +22,7 @@ const updateVer     = $('update-ver');
 const btnDoUpdate   = $('btn-do-update');
 const btnDismissUpd = $('btn-dismiss-update');
 
-// App layout (shifts down with banner)
+// App layout
 const appLayout     = $('app-layout');
 
 // Tabs
@@ -48,11 +48,15 @@ const detailName    = $('detail-name');
 const dVerBadge     = $('d-ver-badge');
 const dMlBadge      = $('d-ml-badge');
 const dRamBadge     = $('d-ram-badge');
+const dJavaBadge    = $('d-java-badge');
 const progressSec   = $('progress-section');
 const progressLabel = $('progress-label');
 const progressPct   = $('progress-pct');
 const progressFill  = $('progress-fill');
 const progressStats = $('progress-stats');
+const javaWarn      = $('java-warn');
+const javaWarnTxt   = $('java-warn-txt');
+const javaWarnBtn   = $('java-warn-btn');
 const playBtn       = $('play-btn');
 const playText      = $('play-text');
 
@@ -69,25 +73,39 @@ const settingsRam   = $('settings-ram');
 const settingsRamV  = $('settings-ram-val');
 const settingsJava  = $('settings-java');
 const gameDirBox    = $('game-dir-box');
+const sysJavaBox    = $('sys-java-box');
 const aboutVer      = $('about-ver');
 const btnCheckUpd   = $('btn-check-update');
 
+// Java controls
+const JAVA_VERS = [8, 17, 21];
+const javaControls = {};
+JAVA_VERS.forEach(v => {
+  javaControls[v] = {
+    status:   $(`java${v}-status`),
+    dlBtn:    $(`btn-java${v}-dl`),
+    progress: $(`java${v}-progress`),
+    fill:     $(`java${v}-fill`),
+    label:    $(`java${v}-label`),
+  };
+});
+
 // ── Modal ──────────────────────────────────────────────────
-const modalCreate   = $('modal-create');
-const modalClose    = $('modal-close');
-const modalName     = $('modal-name');
+const modalCreate     = $('modal-create');
+const modalClose      = $('modal-close');
+const modalName       = $('modal-name');
 const modalFilterTabs = document.querySelectorAll('#modal-filter-tabs .filter-tab');
-const modalVs       = $('modal-vs');
-const modalVsText   = $('modal-vs-text');
-const modalVsDrop   = $('modal-vs-drop');
-const modalVsLoad   = $('modal-vs-loading');
-const modalVsList   = $('modal-vs-list');
-const mlGrid        = $('ml-grid');
-const mlBtns        = document.querySelectorAll('.ml-btn');
-const modalRam      = $('modal-ram');
-const modalRamVal   = $('modal-ram-val');
-const btnModalCancel= $('btn-modal-cancel');
-const btnModalCreate= $('btn-modal-create');
+const modalVs         = $('modal-vs');
+const modalVsText     = $('modal-vs-text');
+const modalVsDrop     = $('modal-vs-drop');
+const modalVsLoad     = $('modal-vs-loading');
+const modalVsList     = $('modal-vs-list');
+const mlGrid          = $('ml-grid');
+const mlBtns          = document.querySelectorAll('.ml-btn');
+const modalRam        = $('modal-ram');
+const modalRamVal     = $('modal-ram-val');
+const btnModalCancel  = $('btn-modal-cancel');
+const btnModalCreate  = $('btn-modal-create');
 
 // ═══════════════════════════════════════════════════════════
 // STATE
@@ -96,6 +114,8 @@ let allVersions     = [];
 let selectedInstId  = null;
 let isLaunching     = false;
 let updateInfo      = null;
+let javaStatus      = {};          // { 8: { installed, path }, 17: ..., 21: ..., system: { version } }
+let downloadingJava = new Set();   // версии в процессе скачивания
 
 // Modal state
 let modalFilter     = 'release';
@@ -156,6 +176,7 @@ navBtns.forEach(btn => {
     const t = btn.dataset.tab;
     Object.values(TABS).forEach(p => p.classList.add('hidden'));
     TABS[t].classList.remove('hidden');
+    if (t === 'settings') refreshJavaStatus();
   });
 });
 
@@ -179,6 +200,85 @@ function setStatus(type, msg) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// JAVA — STATUS PILLS
+// ═══════════════════════════════════════════════════════════
+function renderJavaPill(version, data) {
+  const ctrl = javaControls[version];
+  if (!ctrl) return;
+  const { status, dlBtn, progress } = ctrl;
+
+  const pill = status.querySelector('.jpill-dot');
+  const txt  = status.querySelector('.jpill-txt');
+
+  if (downloadingJava.has(version)) {
+    pill.className = 'jpill-dot busy';
+    txt.textContent = 'Загрузка...';
+    dlBtn.style.display = 'none';
+    progress.classList.remove('hidden');
+    return;
+  }
+
+  if (data?.installed) {
+    pill.className = 'jpill-dot ok';
+    txt.textContent = 'Установлена';
+    dlBtn.style.display = 'none';
+    progress.classList.add('hidden');
+  } else {
+    pill.className = 'jpill-dot miss';
+    txt.textContent = 'Не найдена';
+    dlBtn.style.display = '';
+    progress.classList.add('hidden');
+  }
+}
+
+async function refreshJavaStatus() {
+  try {
+    javaStatus = await window.launcher.getJavaStatus();
+    JAVA_VERS.forEach(v => renderJavaPill(v, javaStatus[v]));
+
+    const sys = javaStatus.system;
+    sysJavaBox.textContent = sys?.version
+      ? `Java ${sys.version} (системная)`
+      : 'Не обнаружена';
+  } catch (e) {
+    console.error('[java status]', e);
+  }
+}
+
+// ─── Download buttons ─────────────────────────────────────
+JAVA_VERS.forEach(v => {
+  const ctrl = javaControls[v];
+  if (!ctrl?.dlBtn) return;
+
+  ctrl.dlBtn.addEventListener('click', async () => {
+    if (downloadingJava.has(v)) return;
+    downloadingJava.add(v);
+    renderJavaPill(v, javaStatus[v]);
+
+    setStatus('busy', `Скачивание Java ${v}...`);
+    const result = await window.launcher.downloadJava(v);
+    downloadingJava.delete(v);
+
+    if (result.success) {
+      setStatus('ready', `Java ${v} установлена`);
+    } else {
+      setStatus('error', `Ошибка Java ${v}: ${(result.error || '').slice(0, 40)}`);
+    }
+    await refreshJavaStatus();
+    updatePlayDetail();
+  });
+});
+
+// ─── Java download progress ───────────────────────────────
+window.launcher.onJavaProgress(({ version, pct, status }) => {
+  const ctrl = javaControls[version];
+  if (!ctrl) return;
+  renderJavaPill(version, null); // stay in busy mode
+  ctrl.fill.style.width  = `${pct}%`;
+  ctrl.label.textContent = status === 'extracting' ? 'Распаковка...' : `${pct}%`;
+});
+
+// ═══════════════════════════════════════════════════════════
 // INSTANCES — RENDER
 // ═══════════════════════════════════════════════════════════
 const ML_LABELS = { none:'Vanilla', forge:'Forge', fabric:'Fabric', optifine:'OptiFine' };
@@ -196,6 +296,12 @@ function renderInstances() {
       const card = document.createElement('div');
       card.className = 'instance-card' + (inst.id === selectedInstId ? ' selected' : '');
       card.dataset.id = inst.id;
+
+      // Цветовой индикатор мод-лоадера (из 1.1.1)
+      const mlColor = { forge:'#e0884a', fabric:'#88aacc', optifine:'#f5c542', none:'' }[inst.modLoader] || '';
+      const borderStyle = mlColor ? `border-left: 3px solid ${mlColor};` : '';
+
+      card.setAttribute('style', borderStyle);
       card.innerHTML = `
         <div class="ic-top">
           <div class="ic-name">${escHtml(inst.name)}</div>
@@ -222,7 +328,7 @@ function renderInstances() {
     });
   }
 
-  // Always append "new" card
+  // "New" card
   const newCard = document.createElement('div');
   newCard.className = 'instance-card-new';
   newCard.innerHTML = `<div class="icn-plus">+</div><div class="icn-text">СОЗДАТЬ</div>`;
@@ -240,16 +346,41 @@ function selectInstance(id) {
 
 function deleteInstance(id) {
   instances = instances.filter(i => i.id !== id);
-  if (selectedInstId === id) {
-    selectedInstId = null;
-  }
+  if (selectedInstId === id) selectedInstId = null;
   saveInstances();
   renderInstances();
   updatePlayDetail();
 }
 
-function updatePlayDetail() {
+// ─── Java-warn helper ─────────────────────────────────────
+function neededJavaMajor(mcVersion) {
+  const parts = (mcVersion || '').split('.').map(Number);
+  const minor = parts[1] || 0;
+  const patch = parts[2] || 0;
+  if (minor >= 21) return 21;
+  if (minor === 20 && patch >= 5) return 21;
+  if (minor >= 17) return 17;
+  return 8;
+}
+
+function javaAvailableFor(mcVersion) {
+  const needed = neededJavaMajor(mcVersion);
+  // Check local
+  for (const v of [8, 17, 21]) {
+    if (v >= needed && javaStatus[v]?.installed) return true;
+  }
+  // Check system
+  if (javaStatus.system?.version >= needed) return true;
+  // Custom path
+  if (settings.javaPath && settings.javaPath.trim()) return true;
+  return false;
+}
+
+async function updatePlayDetail() {
   const inst = instances.find(i => i.id === selectedInstId);
+
+  javaWarn.classList.add('hidden');
+
   if (!inst) {
     detailEmpty.classList.remove('hidden');
     detailInfo.classList.add('hidden');
@@ -257,6 +388,7 @@ function updatePlayDetail() {
     playBtn.classList.remove('update-mode');
     return;
   }
+
   detailEmpty.classList.add('hidden');
   detailInfo.classList.remove('hidden');
   detailName.textContent = inst.name;
@@ -265,16 +397,37 @@ function updatePlayDetail() {
   dMlBadge.textContent   = ML_LABELS[inst.modLoader] || 'Vanilla';
   dRamBadge.textContent  = `${inst.ram} MB`;
 
-  if (!isLaunching) {
-    playBtn.disabled = false;
+  // Java badge
+  const needed = neededJavaMajor(inst.version);
+  dJavaBadge.textContent = `Java ${needed}`;
+  dJavaBadge.classList.remove('hidden');
 
-    // Check if this is an "update available" case — repurpose button
+  if (!isLaunching) {
+    // Check if java available
+    const hasJava = javaAvailableFor(inst.version);
+
+    if (!hasJava) {
+      javaWarnTxt.textContent = `Нужна Java ${needed} — не найдена`;
+      javaWarn.classList.remove('hidden');
+      javaWarnBtn.onclick = () => {
+        // Switch to settings, point to Java section
+        navBtns.forEach(b => b.classList.remove('active'));
+        document.querySelector('[data-tab="settings"]').classList.add('active');
+        Object.values(TABS).forEach(p => p.classList.add('hidden'));
+        tabSettings.classList.remove('hidden');
+        refreshJavaStatus();
+      };
+      playBtn.disabled = true;
+    } else {
+      playBtn.disabled = false;
+    }
+
     if (updateInfo?.hasUpdate) {
       playBtn.classList.add('update-mode');
       playText.textContent = '↓ ОБНОВИТЬ';
     } else {
       playBtn.classList.remove('update-mode');
-      playText.textContent = 'ИГРАТЬ';
+      if (!playBtn.disabled) playText.textContent = 'ИГРАТЬ';
     }
   }
 }
@@ -290,13 +443,8 @@ function openModal() {
   modalRam.value = settings.ram;
   modalRamVal.textContent = `${settings.ram} MB`;
 
-  // Reset filter tabs
   modalFilterTabs.forEach(t => t.classList.toggle('active', t.dataset.filter === 'release'));
-
-  // Reset ML buttons
   mlBtns.forEach(b => b.classList.toggle('active', b.dataset.ml === 'none'));
-
-  // Reset version display
   modalVsText.textContent = 'Выберите версию...';
   modalVs.classList.remove('open');
   btnModalCreate.disabled = true;
@@ -317,19 +465,16 @@ modalCreate.addEventListener('click', e => {
   if (e.target === modalCreate) closeModal();
 });
 
-// Validate create button
 function validateModal() {
   btnModalCreate.disabled = !(modalName.value.trim() && modalSelVersion);
 }
 modalName.addEventListener('input', validateModal);
 
-// Modal version filter tabs
 modalFilterTabs.forEach(tab => {
   tab.addEventListener('click', () => {
     modalFilterTabs.forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
     modalFilter = tab.dataset.filter;
-    // Reset selection if type changed
     if (modalSelVersion && modalSelVersion.type !== modalFilter) {
       modalSelVersion = null;
       modalVsText.textContent = 'Выберите версию...';
@@ -339,10 +484,7 @@ modalFilterTabs.forEach(tab => {
   });
 });
 
-// Modal version select dropdown
-modalVs.addEventListener('click', () => {
-  modalVs.classList.toggle('open');
-});
+modalVs.addEventListener('click', () => modalVs.classList.toggle('open'));
 document.addEventListener('click', e => {
   if (!modalVs.contains(e.target)) modalVs.classList.remove('open');
 });
@@ -389,7 +531,6 @@ function renderModalVersionList() {
   });
 }
 
-// ML buttons
 mlBtns.forEach(btn => {
   btn.addEventListener('click', () => {
     mlBtns.forEach(b => b.classList.remove('active'));
@@ -398,12 +539,10 @@ mlBtns.forEach(btn => {
   });
 });
 
-// RAM slider in modal
 modalRam.addEventListener('input', () => {
   modalRamVal.textContent = `${modalRam.value} MB`;
 });
 
-// Create instance
 btnModalCreate.addEventListener('click', () => {
   if (!modalName.value.trim() || !modalSelVersion) return;
 
@@ -429,7 +568,6 @@ btnModalCreate.addEventListener('click', () => {
 playBtn.addEventListener('click', async () => {
   if (isLaunching) return;
 
-  // If update-mode, open browser instead of launching
   if (updateInfo?.hasUpdate) {
     if (updateInfo.url) window.launcher.openUrl(updateInfo.url);
     return;
@@ -469,6 +607,7 @@ function startLaunch() {
   progressPct.textContent = '0%';
   progressLabel.textContent = 'Инициализация...';
   progressStats.textContent = '—';
+  javaWarn.classList.add('hidden');
   setStatus('busy', 'Запуск Minecraft...');
 
   window.launcher.onLaunchProgress(handleProgress);
@@ -483,12 +622,9 @@ function stopLaunch() {
   window.launcher.removeAllListeners('launch-progress');
   window.launcher.removeAllListeners('launch-log');
   window.launcher.removeAllListeners('launch-closed');
-  updatePlayDetail(); // restore play button state
+  updatePlayDetail();
 }
 
-// ─── FIXED progress handler ───────────────────────────────
-// minecraft-launcher-core emits: { type: string, task: number, total: number }
-// task/total are NUMBERS, not strings.
 function handleProgress(data) {
   const task  = typeof data.task  === 'number' ? data.task  : 0;
   const total = typeof data.total === 'number' ? data.total : 0;
@@ -507,19 +643,12 @@ function handleProgress(data) {
   };
   const typeRu = typeNames[data.type] || (data.type ? String(data.type) : 'файлов');
 
-  progressLabel.textContent = total > 0
-    ? `Загрузка ${typeRu}`
-    : `Обработка ${typeRu}...`;
-
-  progressStats.textContent = total > 0
-    ? `${task} из ${total} файлов`
-    : '—';
+  progressLabel.textContent = total > 0 ? `Загрузка ${typeRu}` : `Обработка ${typeRu}...`;
+  progressStats.textContent = total > 0 ? `${task} из ${total} файлов` : '—';
 }
 
 function handleLog(data) {
-  if (data.type === 'data') {
-    setStatus('busy', 'Игра запущена ▶');
-  }
+  if (data.type === 'data') setStatus('busy', 'Игра запущена ▶');
 }
 
 function handleClosed(code) {
@@ -556,19 +685,13 @@ linkMojang?.addEventListener('click', () => {
 function clearSkinCanvas() {
   const ctx = skinCanvas.getContext('2d');
   ctx.clearRect(0, 0, skinCanvas.width, skinCanvas.height);
-  // Draw placeholder silhouette
   ctx.fillStyle = '#1e1e1e';
-  const S = 5;
-  // Head
-  ctx.fillRect(20, 0,  40, 40);
-  // Body
-  ctx.fillRect(20, 40, 40, 60);
-  // Arms
-  ctx.fillRect(0,  40, 20, 60);
-  ctx.fillRect(60, 40, 20, 60);
-  // Legs
-  ctx.fillRect(20, 100,20, 60);
-  ctx.fillRect(40, 100,20, 60);
+  ctx.fillRect(20,  0,  40, 40);
+  ctx.fillRect(20, 40,  40, 60);
+  ctx.fillRect( 0, 40,  20, 60);
+  ctx.fillRect(60, 40,  20, 60);
+  ctx.fillRect(20,100,  20, 60);
+  ctx.fillRect(40,100,  20, 60);
 }
 
 function renderSkinPreview(src) {
@@ -580,16 +703,13 @@ function renderSkinPreview(src) {
     skinCanvas.height = 160;
     ctx.clearRect(0, 0, 80, 160);
 
-    const S = 5; // each MC pixel → 5 canvas pixels
-
-    // Create temp canvas to inspect pixels
+    const S = 5;
     const tmp = document.createElement('canvas');
     tmp.width  = img.naturalWidth;
     tmp.height = img.naturalHeight;
     const tc = tmp.getContext('2d');
     tc.drawImage(img, 0, 0);
 
-    // Helper: draw a skin region at canvas position
     function dr(sx, sy, sw, sh, dx, dy, mirror = false) {
       if (mirror) {
         ctx.save();
@@ -602,37 +722,17 @@ function renderSkinPreview(src) {
       }
     }
 
-    // Check if skin has new-format left arm/leg data (alpha > 0)
     const laPixel = tc.getImageData(36, 52, 1, 1).data;
     const llPixel = tc.getImageData(20, 52, 1, 1).data;
     const hasLeftArm = laPixel[3] > 0;
     const hasLeftLeg = llPixel[3] > 0;
 
-    // ── HEAD (face: x=8, y=8, size 8×8) ──────────────────
     dr(8, 8, 8, 8, 20, 0);
-
-    // ── BODY (front: x=20, y=20, size 8×12) ──────────────
     dr(20, 20, 8, 12, 20, 40);
-
-    // ── RIGHT ARM (front: x=44, y=20, size 4×12) ─────────
     dr(44, 20, 4, 12, 60, 40);
-
-    // ── LEFT ARM ─────────────────────────────────────────
-    if (hasLeftArm) {
-      dr(36, 52, 4, 12, 0, 40);
-    } else {
-      dr(44, 20, 4, 12, 0, 40, true);
-    }
-
-    // ── RIGHT LEG (front: x=4, y=20, size 4×12) ──────────
+    hasLeftArm ? dr(36, 52, 4, 12, 0, 40) : dr(44, 20, 4, 12, 0, 40, true);
     dr(4, 20, 4, 12, 40, 100);
-
-    // ── LEFT LEG ─────────────────────────────────────────
-    if (hasLeftLeg) {
-      dr(20, 52, 4, 12, 20, 100);
-    } else {
-      dr(4, 20, 4, 12, 20, 100, true);
-    }
+    hasLeftLeg ? dr(20, 52, 4, 12, 20, 100) : dr(4, 20, 4, 12, 20, 100, true);
   };
   img.onerror = clearSkinCanvas;
   img.src = src;
@@ -642,16 +742,14 @@ function renderSkinPreview(src) {
 // SETTINGS
 // ═══════════════════════════════════════════════════════════
 function loadSettingsUI() {
-  settingsRam.value    = settings.ram;
+  settingsRam.value       = settings.ram;
   settingsRamV.textContent = `${settings.ram} MB`;
-  settingsJava.value   = settings.javaPath;
-  aboutVer.textContent = 'YoLauncher v1.1.0';
+  settingsJava.value      = settings.javaPath;
+  aboutVer.textContent    = 'YoLauncher v1.1.2';
 
   window.launcher.getGameDir().then(dir => {
     gameDirBox.textContent = dir;
-  }).catch(() => {
-    gameDirBox.textContent = '—';
-  });
+  }).catch(() => { gameDirBox.textContent = '—'; });
 }
 
 settingsRam.addEventListener('input', () => {
@@ -690,7 +788,7 @@ function showUpdateBanner(info) {
   updateVer.textContent = `v${info.latest}`;
   updateBanner.classList.remove('hidden');
   appLayout.classList.add('with-banner');
-  updatePlayDetail(); // re-render play button (blue mode)
+  updatePlayDetail();
 }
 
 btnDoUpdate.addEventListener('click', () => {
@@ -700,8 +798,6 @@ btnDoUpdate.addEventListener('click', () => {
 btnDismissUpd.addEventListener('click', () => {
   updateBanner.classList.add('hidden');
   appLayout.classList.remove('with-banner');
-  // Don't clear updateInfo — play button stays blue, but banner hidden
-  // Actually restore normal play:
   updateInfo = null;
   updatePlayDetail();
 });
@@ -713,12 +809,8 @@ async function loadVersions() {
   setStatus('busy', 'Загрузка версий...');
   try {
     allVersions = await window.launcher.fetchVersions();
-    const releaseCount = allVersions.filter(v => v.type === 'release').length;
     setStatus('ready', `Загружено ${allVersions.length} версий`);
-    // If modal is open, re-render its list
-    if (!modalCreate.classList.contains('hidden')) {
-      renderModalVersionList();
-    }
+    if (!modalCreate.classList.contains('hidden')) renderModalVersionList();
   } catch (err) {
     setStatus('error', 'Нет сети');
     console.error('[versions]', err);
@@ -734,47 +826,41 @@ function typeColor(type) {
 
 function escHtml(str) {
   return String(str)
-    .replace(/&/g,'&amp;')
-    .replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;');
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 btnNewInst.addEventListener('click', openModal);
 
 // ═══════════════════════════════════════════════════════════
-// BOOT SEQUENCE
+// BOOT
 // ═══════════════════════════════════════════════════════════
 async function boot() {
-  // Load storage first
   loadStorage();
   loadUsername();
   loadSettingsUI();
 
-  // Set version labels
   window.launcher.getVersion().then(v => {
     appVersion.textContent  = `v${v}`;
     sidebarVer.textContent  = `v${v}`;
     aboutVer.textContent    = `YoLauncher v${v}`;
   }).catch(() => {});
 
-  // Render instances (may be empty)
   renderInstances();
   clearSkinCanvas();
 
-  // Load stored skin
   try {
     const sk = localStorage.getItem('yo-skin');
-    if (sk) {
-      renderSkinPreview(sk);
-      skinLabel.textContent = 'Загруженный скин';
-    }
+    if (sk) { renderSkinPreview(sk); skinLabel.textContent = 'Загруженный скин'; }
   } catch {}
 
-  // Load Minecraft versions (async, non-blocking)
+  // Load Java status (non-blocking)
+  refreshJavaStatus().then(() => updatePlayDetail());
+
+  // Load MC versions
   loadVersions();
 
-  // Check for launcher updates silently
+  // Update check
   window.launcher.checkUpdate().then(info => {
     if (info?.hasUpdate) showUpdateBanner(info);
   }).catch(() => {});

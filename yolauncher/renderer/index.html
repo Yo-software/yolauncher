@@ -16,7 +16,7 @@
 <div class="titlebar">
   <div class="title-left">
     <span class="title-logo"><em>Yo</em>Launcher</span>
-    <span class="title-ver" id="app-version">v1.1.0</span>
+    <span class="title-ver" id="app-version">v1.1.2</span>
   </div>
   <div class="title-ctrl">
     <button class="ctrl-btn min" id="btn-minimize">─</button>
@@ -50,7 +50,7 @@
       <div class="s-logo-mark"></div>
       <div class="s-logo-text">
         <span class="logo-yo">Yo</span><span class="logo-la">Launcher</span>
-        <div class="logo-ver" id="sidebar-ver">v1.1.0</div>
+        <div class="logo-ver" id="sidebar-ver">v1.1.2</div>
       </div>
     </div>
 
@@ -58,7 +58,7 @@
 
     <nav class="s-nav">
       <button class="nav-btn active" data-tab="instances">
-        <span class="nav-ico">▤</span>Инстанции
+        <span class="nav-ico">▤</span>Сборки
       </button>
       <button class="nav-btn" data-tab="skins">
         <span class="nav-ico">◈</span>Скины
@@ -93,7 +93,7 @@
     <section class="tab-panel" id="tab-instances">
 
       <div class="tab-topbar">
-        <h2 class="tab-title">ИНСТАНЦИИ</h2>
+        <h2 class="tab-title">СБОРКИ</h2>
         <button class="btn-create" id="btn-new-instance">+ СОЗДАТЬ</button>
       </div>
 
@@ -101,7 +101,7 @@
         <div class="instances-grid" id="instances-grid"><!-- JS renders --></div>
         <div class="empty-state hidden" id="empty-state">
           <div class="empty-ico">⬛</div>
-          <div class="empty-title">НЕТ ИНСТАНЦИЙ</div>
+          <div class="empty-title">НЕТ СБОРОК</div>
           <div class="empty-sub">Нажмите «+ СОЗДАТЬ» чтобы начать</div>
         </div>
       </div>
@@ -110,13 +110,14 @@
       <div class="play-section">
 
         <div class="play-detail" id="play-detail">
-          <div class="detail-empty" id="detail-empty">Выберите инстанцию выше</div>
+          <div class="detail-empty" id="detail-empty">Выберите сборку выше</div>
           <div class="detail-info hidden" id="detail-info">
             <span class="detail-name" id="detail-name">—</span>
             <div class="detail-badges">
               <span class="badge" id="d-ver-badge">—</span>
               <span class="badge badge-ml" id="d-ml-badge">Vanilla</span>
               <span class="badge badge-ram" id="d-ram-badge">2048 MB</span>
+              <span class="badge badge-java hidden" id="d-java-badge">Java —</span>
             </div>
           </div>
         </div>
@@ -132,6 +133,13 @@
               <div class="progress-fill" id="progress-fill"></div>
             </div>
             <div class="progress-stats" id="progress-stats">0 из 0 файлов</div>
+          </div>
+
+          <!-- Java missing warning -->
+          <div class="java-warn hidden" id="java-warn">
+            <span class="java-warn-ico">⚠</span>
+            <span class="java-warn-txt" id="java-warn-txt">Java не найдена</span>
+            <button class="java-warn-btn" id="java-warn-btn">Скачать</button>
           </div>
 
           <button class="play-btn" id="play-btn" disabled>
@@ -221,10 +229,11 @@
           <div class="settings-group">
             <div class="sg-title">JAVA</div>
 
+            <!-- Custom java path -->
             <div class="setting-row">
               <div class="setting-meta">
                 <label class="setting-lbl">ПУТЬ К JAVA</label>
-                <span class="setting-hint">Оставьте пустым для автоопределения</span>
+                <span class="setting-hint">Оставьте пустым для авто-выбора</span>
               </div>
               <div class="setting-ctrl wide">
                 <input type="text" class="s-input settings-txt" id="settings-java"
@@ -232,6 +241,87 @@
               </div>
             </div>
 
+            <!-- Java 8 -->
+            <div class="setting-row">
+              <div class="setting-meta">
+                <label class="setting-lbl">JAVA 8</label>
+                <span class="setting-hint">Для MC 1.0 — 1.16.5</span>
+              </div>
+              <div class="setting-ctrl java-ctrl">
+                <div class="java-status-pill" id="java8-status">
+                  <span class="jpill-dot"></span>
+                  <span class="jpill-txt">Проверка...</span>
+                </div>
+                <button class="btn-action btn-java-dl" id="btn-java8-dl" style="display:none">
+                  ↓ СКАЧАТЬ
+                </button>
+                <div class="java-dl-progress hidden" id="java8-progress">
+                  <div class="jdl-bar">
+                    <div class="jdl-fill" id="java8-fill"></div>
+                  </div>
+                  <span class="jdl-label" id="java8-label">0%</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Java 17 -->
+            <div class="setting-row">
+              <div class="setting-meta">
+                <label class="setting-lbl">JAVA 17</label>
+                <span class="setting-hint">Для MC 1.17 — 1.20.4</span>
+              </div>
+              <div class="setting-ctrl java-ctrl">
+                <div class="java-status-pill" id="java17-status">
+                  <span class="jpill-dot"></span>
+                  <span class="jpill-txt">Проверка...</span>
+                </div>
+                <button class="btn-action btn-java-dl" id="btn-java17-dl" style="display:none">
+                  ↓ СКАЧАТЬ
+                </button>
+                <div class="java-dl-progress hidden" id="java17-progress">
+                  <div class="jdl-bar">
+                    <div class="jdl-fill" id="java17-fill"></div>
+                  </div>
+                  <span class="jdl-label" id="java17-label">0%</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Java 21 -->
+            <div class="setting-row">
+              <div class="setting-meta">
+                <label class="setting-lbl">JAVA 21</label>
+                <span class="setting-hint">Для MC 1.20.5+</span>
+              </div>
+              <div class="setting-ctrl java-ctrl">
+                <div class="java-status-pill" id="java21-status">
+                  <span class="jpill-dot"></span>
+                  <span class="jpill-txt">Проверка...</span>
+                </div>
+                <button class="btn-action btn-java-dl" id="btn-java21-dl" style="display:none">
+                  ↓ СКАЧАТЬ
+                </button>
+                <div class="java-dl-progress hidden" id="java21-progress">
+                  <div class="jdl-bar">
+                    <div class="jdl-fill" id="java21-fill"></div>
+                  </div>
+                  <span class="jdl-label" id="java21-label">0%</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- System Java info -->
+            <div class="setting-row">
+              <div class="setting-meta">
+                <label class="setting-lbl">СИСТЕМНАЯ JAVA</label>
+                <span class="setting-hint">Определённая в PATH</span>
+              </div>
+              <div class="setting-ctrl">
+                <div class="game-dir-box" id="sys-java-box">—</div>
+              </div>
+            </div>
+
+            <!-- Game dir -->
             <div class="setting-row">
               <div class="setting-meta">
                 <label class="setting-lbl">ДИРЕКТОРИЯ ИГРЫ</label>
@@ -252,7 +342,7 @@
             <div class="setting-row">
               <div class="setting-meta">
                 <label class="setting-lbl">ВЕРСИЯ</label>
-                <span class="setting-hint" id="about-ver">YoLauncher v1.1.0</span>
+                <span class="setting-hint" id="about-ver">YoLauncher v1.1.2</span>
               </div>
               <div class="setting-ctrl">
                 <button class="btn-action" id="btn-check-update">↻ ПРОВЕРИТЬ</button>
@@ -281,7 +371,7 @@
   <div class="modal">
 
     <div class="modal-hd">
-      <span class="modal-title">СОЗДАТЬ ИНСТАНЦИЮ</span>
+      <span class="modal-title">СОЗДАТЬ СБОРКУ</span>
       <button class="modal-x" id="modal-close">✕</button>
     </div>
 

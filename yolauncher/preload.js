@@ -16,9 +16,18 @@ contextBridge.exposeInMainWorld('launcher', {
   fetchVersions: ()      => ipcRenderer.invoke('fetch-versions'),
   launchGame:    (opts)  => ipcRenderer.invoke('launch-game', opts),
 
+  // Java
+  getJavaStatus:        ()       => ipcRenderer.invoke('get-java-status'),
+  downloadJava:         (v)      => ipcRenderer.invoke('download-java', v),
+  detectJavaForVersion: (ver)    => ipcRenderer.invoke('detect-java-for-version', ver),
+
   // Launch events
   onLaunchProgress: (cb) => ipcRenderer.on('launch-progress', (_, d) => cb(d)),
   onLaunchLog:      (cb) => ipcRenderer.on('launch-log',      (_, d) => cb(d)),
   onLaunchClosed:   (cb) => ipcRenderer.on('launch-closed',   (_, d) => cb(d)),
+
+  // Java download events
+  onJavaProgress: (cb) => ipcRenderer.on('java-download-progress', (_, d) => cb(d)),
+
   removeAllListeners: (ch) => ipcRenderer.removeAllListeners(ch),
 });
