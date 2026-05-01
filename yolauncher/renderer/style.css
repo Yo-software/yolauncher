@@ -47,6 +47,9 @@
   --play-h:     200px;
 }
 
+/* Global hidden utility */
+.hidden { display: none !important; }
+
 /* ─── Reset ──────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body {

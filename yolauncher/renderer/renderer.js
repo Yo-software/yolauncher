@@ -158,6 +158,8 @@ const FIREBASE_CONFIG = {
   measurementId:     'G-HCJ7D5M3T2',
 };
 
+let db = null; // Firestore instance
+
 function initFirebase() {
   if (typeof firebase === 'undefined') {
     console.warn('[YoID] Firebase SDK не загружен (нет сети?)');
@@ -165,21 +167,45 @@ function initFirebase() {
   }
   if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
 
-  // Явно выставляем LOCAL persistence — сессия переживает перезапуск Electron
+  db = firebase.firestore();
+
+  // LOCAL persistence — сессия переживает перезапуск Electron
   firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(e => {
     console.warn('[YoID] persistence error:', e);
   });
 
   firebase.auth().onAuthStateChanged(async user => {
-    yoidUser = user;
-    yoidUUID = user ? await buildYoIDUUID(user.uid) : null;
+    if (user) {
+      // Подгружаем профиль из Firestore — там всегда актуальное имя
+      const profile = await loadFirestoreProfile(user.uid);
+      yoidUser = user;
+      yoidUUID = await buildYoIDUUID(user.uid);
+      // Кешируем имя: Firestore > Firebase Auth > email prefix
+      yoidUser._cachedName = profile?.displayName || user.displayName || user.email.split('@')[0];
+      setStatus('ready', `YoID: ${yoidUser._cachedName.slice(0,16)}`);
+    } else {
+      yoidUser = null;
+      yoidUUID = null;
+    }
     updateYoIDSidebar();
     updatePlayDetail();
-
-    if (user) {
-      setStatus('ready', `YoID: ${yoidDisplayName(user)}`);
-    }
   });
+}
+
+// ─── Firestore helpers ────────────────────────────────────
+async function loadFirestoreProfile(uid) {
+  if (!db) return null;
+  try {
+    const doc = await db.collection('users').doc(uid).get();
+    return doc.exists ? doc.data() : null;
+  } catch (e) { console.warn('[YoID] Firestore read:', e); return null; }
+}
+
+async function saveFirestoreProfile(uid, data) {
+  if (!db) return;
+  try {
+    await db.collection('users').doc(uid).set(data, { merge: true });
+  } catch (e) { console.warn('[YoID] Firestore write:', e); }
 }
 
 /** SHA-256(YoID:{uid}) → UUID v4 формат */
@@ -194,13 +220,12 @@ async function buildYoIDUUID(uid) {
 
 /** Отображаемое имя YoID пользователя для Minecraft (макс 16) */
 function yoidDisplayName(user) {
-  return (user.displayName || user.email.split('@')[0]).slice(0, 16);
+  return (user._cachedName || user.displayName || user.email.split('@')[0]).slice(0, 16);
 }
 
 /** Инициалы для аватара */
 function yoidInitials(user) {
-  const name = user.displayName || user.email;
-  return name.slice(0, 2).toUpperCase();
+  return yoidDisplayName(user).slice(0, 2).toUpperCase();
 }
 
 function updateYoIDSidebar() {
@@ -307,26 +332,46 @@ yoidSubmit.addEventListener('click', async () => {
 
   const email = yoidEmail.value.trim();
   const pass  = yoidPassword.value;
-  if (!email || !pass) { showYoidError('Заполните все поля'); return; }
-  if (pass.length < 6) { showYoidError('Пароль минимум 6 символов'); return; }
+  if (!email || !pass)  { showYoidError('Заполните все поля'); return; }
+  if (pass.length < 6)  { showYoidError('Пароль минимум 6 символов'); return; }
 
   setYoidLoading(true);
   yoidError.classList.add('hidden');
 
   try {
     if (yoidMode === 'login') {
+      // ── Вход ──────────────────────────────────────────────
       await firebase.auth().signInWithEmailAndPassword(email, pass);
+      // onAuthStateChanged подхватит и загрузит Firestore-профиль
+
     } else {
-      // Регистрация
+      // ── Регистрация ────────────────────────────────────────
       const rawName     = yoidDisplayname.value.trim();
       const displayName = (rawName || email.split('@')[0]).slice(0, 16);
+
       const cred = await firebase.auth().createUserWithEmailAndPassword(email, pass);
-      // Сразу прописываем displayName в профиль
-      await cred.user.updateProfile({ displayName });
-      // Принудительно обновляем yoidUser чтобы displayName был актуален
-      await cred.user.reload();
-      yoidUser = firebase.auth().currentUser;
+      const user = cred.user;
+
+      // Прописываем displayName в Firebase Auth
+      await user.updateProfile({ displayName });
+
+      // Генерируем стабильный Minecraft UUID
+      const mcUUID = await buildYoIDUUID(user.uid);
+
+      // ── Авто-создаём документ в Firestore users/{uid} ─────
+      await saveFirestoreProfile(user.uid, {
+        displayName,
+        email,
+        minecraftUUID: mcUUID,
+        createdAt:     firebase.firestore.FieldValue.serverTimestamp(),
+        launcher:      'YoLauncher',
+        version:       '1.2.0',
+      });
+
+      // Кешируем имя до срабатывания onAuthStateChanged
+      user._cachedName = displayName;
     }
+
     closeYoidModal();
   } catch (err) {
     showYoidError(firebaseErrRu(err.code));

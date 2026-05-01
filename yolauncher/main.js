@@ -8,7 +8,7 @@ const os     = require('os');
 const { execSync } = require('child_process');
 const crypto = require('crypto');
 
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.2.0-pre1';
 let mainWindow;
 
 // ─── MD5 UUID helper (офлайн без YoID) ───────────────────
